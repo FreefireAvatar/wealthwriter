@@ -1,0 +1,94 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8"/>
+  <title>WealthWriter — Ethical Text Enhancer</title>
+  <style>
+    body { font-family: -apple-system, Arial, sans-serif; max-width: 900px; margin: 28px auto; padding: 0 16px; color: #111; line-height: 1.6; }
+    textarea, input { width: 100%; box-sizing: border-box; padding: 12px; margin-bottom: 12px; font-size: 15px; border: 1px solid #ddd; border-radius: 6px; }
+    label { font-weight: 600; display: block; margin-top: 12px; }
+    button { padding: 12px 20px; border-radius: 6px; background: #0b76ef; color: white; border: none; cursor: pointer; font-size: 16px; }
+    button:disabled { opacity: 0.6; cursor: not-allowed; }
+    .output { background: #fff; padding: 16px; border: 1px solid #ddd; border-radius: 8px; white-space: pre-wrap; margin-top: 12px; }
+    .meta { font-size: 14px; color: #444; margin-bottom: 12px; background: #f7f9fc; padding: 10px; border-radius: 6px; }
+    .suggest { margin-top: 12px; padding: 12px; background: #f7f9fc; border-radius: 6px; }
+    .warning { color: #d32f2f; font-weight: 500; }
+  </style>
+</head>
+<body>
+  <h1>WealthWriter — Ethical Text Enhancer</h1>
+  <p class="meta">Refine your writing with personal touches to make it feel natural. <span class="warning">Always edit manually after—do not use to deceive detection systems or violate policies.</span></p>
+
+  <label for="inputText">Paste your text (required):</label>
+  <textarea id="inputText" placeholder="Paste your paragraph or essay here..." rows="8"></textarea>
+
+  <label for="anecdote1">Personal detail 1 (required, one sentence):</label>
+  <input id="anecdote1" placeholder="E.g., 'I remember struggling with this concept in high school.'" />
+
+  <label for="anecdote2">Personal detail 2 (required, one sentence):</label>
+  <input id="anecdote2" placeholder="E.g., 'My friend once shared a similar story about their job.'" />
+
+  <label for="extraDetail">Additional context (optional):</label>
+  <input id="extraDetail" placeholder="E.g., 'I feel strongly about this because...'" />
+
+  <label for="tone">Tone preference (optional):</label>
+  <input id="tone" placeholder="E.g., 'friendly, conversational' or 'formal, academic'" />
+
+  <button id="rewriteBtn" onclick="rewrite()">Refine & Personalize</button>
+  <div id="status" style="margin-top: 12px; color: #555;"></div>
+
+  <h3>Refined Output</h3>
+  <div id="output" class="output">Nothing yet.</div>
+
+  <div id="disclosure" style="margin-top: 12px; font-size: 14px; color: #555;"></div>
+
+  <h4>Manual Personalization Suggestions</h4>
+  <div id="suggestions" class="suggest">No suggestions yet.</div>
+
+<script>
+async function rewrite() {
+  const btn = document.getElementById("rewriteBtn");
+  const text = document.getElementById("inputText").value;
+  const anecdote1 = document.getElementById("anecdote1").value;
+  const anecdote2 = document.getElementById("anecdote2").value;
+  const extraDetail = document.getElementById("extraDetail").value;
+  const tone = document.getElementById("tone").value;
+
+  if (!text.trim() || !anecdote1.trim() || !anecdote2.trim()) {
+    alert("Please provide text and two personal details for better results.");
+    return;
+  }
+
+  btn.disabled = true;
+  document.getElementById("status").innerText = "Refining your text...";
+
+  try {
+    const resp = await fetch("http://127.0.0.1:3000/rewrite", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text, anecdote1, anecdote2, extraDetail, toneHint: tone }),
+    });
+
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({ error: resp.statusText }));
+      throw new Error(err.error || JSON.stringify(err));
+    }
+
+    const data = await resp.json();
+    document.getElementById("output").innerText = data.rewritten || "No refined text returned.";
+    document.getElementById("disclosure").innerText = data.disclosure || "";
+    const sug = data.suggestions || [];
+    document.getElementById("suggestions").innerHTML = sug.length
+      ? "<ol>" + sug.map(s => `<li>${s}</li>`).join("") + "</ol>"
+      : "No suggestions available.";
+  } catch (err) {
+    alert("Error: " + err.message);
+    console.error(err);
+  } finally {
+    btn.disabled = false;
+    document.getElementById("status").innerText = "";
+  }
+}
+</script>
+</body>
+</html>
