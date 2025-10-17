@@ -13,6 +13,10 @@
     .meta { font-size: 14px; color: #444; margin-bottom: 12px; background: #f7f9fc; padding: 10px; border-radius: 6px; }
     .suggest { margin-top: 12px; padding: 12px; background: #f7f9fc; border-radius: 6px; }
     .warning { color: #d32f2f; font-weight: 500; }
+    .error { color: #d32f2f; background: #ffebee; padding: 10px; border-radius: 6px; margin: 10px 0; }
+    .success { color: #2e7d32; background: #e8f5e8; padding: 10px; border-radius: 6px; }
+    #status { margin-top: 12px; padding: 10px; border-radius: 6px; }
+    .loading { background: #e3f2fd; color: #1976d2; }
   </style>
 </head>
 <body>
@@ -35,10 +39,12 @@
   <input id="tone" placeholder="E.g., 'friendly, conversational' or 'formal, academic'" />
 
   <button id="rewriteBtn" onclick="rewrite()">Refine & Personalize</button>
-  <div id="status" style="margin-top: 12px; color: #555;"></div>
+  <div id="status"></div>
+  <div id="errorMsg" class="error" style="display: none;"></div>
 
   <h3>Refined Output</h3>
   <div id="output" class="output">Nothing yet.</div>
+  <div id="wordCount" style="font-size: 14px; color: #666; margin-top: 8px;"></div>
 
   <div id="disclosure" style="margin-top: 12px; font-size: 14px; color: #555;"></div>
 
@@ -46,49 +52,164 @@
   <div id="suggestions" class="suggest">No suggestions yet.</div>
 
 <script>
+function getApiUrl() {
+  // Auto-detect environment
+  if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+    return '/api/apirewrite'; // Next.js dev server
+  }
+  // For production, use relative path or configure your server
+  return '/api/apirewrite';
+}
+
+function showStatus(message, isError = false) {
+  const statusEl = document.getElementById('status');
+  const errorEl = document.getElementById('errorMsg');
+  
+  statusEl.textContent = message;
+  statusEl.className = isError ? 'error' : 'loading';
+  statusEl.style.display = 'block';
+  
+  if (isError) {
+    errorEl.textContent = message;
+    errorEl.style.display = 'block';
+  } else {
+    errorEl.style.display = 'none';
+  }
+}
+
+function clearStatus() {
+  document.getElementById('status').style.display = 'none';
+  document.getElementById('errorMsg').style.display = 'none';
+}
+
 async function rewrite() {
   const btn = document.getElementById("rewriteBtn");
-  const text = document.getElementById("inputText").value;
-  const anecdote1 = document.getElementById("anecdote1").value;
-  const anecdote2 = document.getElementById("anecdote2").value;
-  const extraDetail = document.getElementById("extraDetail").value;
-  const tone = document.getElementById("tone").value;
+  const text = document.getElementById("inputText").value.trim();
+  const anecdote1 = document.getElementById("anecdote1").value.trim();
+  const anecdote2 = document.getElementById("anecdote2").value.trim();
+  const extraDetail = document.getElementById("extraDetail").value.trim();
+  const tone = document.getElementById("tone").value.trim();
 
-  if (!text.trim() || !anecdote1.trim() || !anecdote2.trim()) {
-    alert("Please provide text and two personal details for better results.");
+  // Validation
+  if (!text) {
+    showStatus("Please provide the main text to refine.", true);
+    return;
+  }
+  if (!anecdote1 || !anecdote2) {
+    showStatus("Please provide both personal details for better personalization.", true);
     return;
   }
 
+  // Disable button and show loading
   btn.disabled = true;
-  document.getElementById("status").innerText = "Refining your text...";
+  btn.textContent = "Processing...";
+  clearStatus();
+  document.getElementById("output").textContent = "Generating refined text...";
 
   try {
-    const resp = await fetch("http://127.0.0.1:3000/rewrite", {
+    showStatus("Connecting to AI service and refining your text...");
+    
+    const apiUrl = getApiUrl();
+    console.log("Calling API:", apiUrl);
+
+    const response = await fetch(apiUrl, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text, anecdote1, anecdote2, extraDetail, toneHint: tone }),
+      headers: { 
+        "Content-Type": "application/json",
+        // Add cache busting
+        "Cache-Control": "no-cache"
+      },
+      body: JSON.stringify({ 
+        text, 
+        anecdote1, 
+        anecdote2, 
+        extraDetail, 
+        toneHint: tone || "friendly, conversational"
+      }),
+      // Timeout handling
+      signal: AbortSignal.timeout(30000) // 30 seconds
     });
 
-    if (!resp.ok) {
-      const err = await resp.json().catch(() => ({ error: resp.statusText }));
-      throw new Error(err.error || JSON.stringify(err));
+    if (!response.ok) {
+      let errorData;
+      try {
+        errorData = await response.json();
+      } catch {
+        errorData = { error: `HTTP ${response.status}: ${response.statusText}` };
+      }
+      
+      const errorMsg = errorData.error || errorData.details || "Unknown server error";
+      throw new Error(errorMsg);
     }
 
-    const data = await resp.json();
-    document.getElementById("output").innerText = data.rewritten || "No refined text returned.";
-    document.getElementById("disclosure").innerText = data.disclosure || "";
-    const sug = data.suggestions || [];
-    document.getElementById("suggestions").innerHTML = sug.length
-      ? "<ol>" + sug.map(s => `<li>${s}</li>`).join("") + "</ol>"
-      : "No suggestions available.";
-  } catch (err) {
-    alert("Error: " + err.message);
-    console.error(err);
+    const data = await response.json();
+    
+    if (!data.rewritten) {
+      throw new Error("No refined text returned from server");
+    }
+
+    // Update UI with results
+    document.getElementById("output").textContent = data.rewritten;
+    document.getElementById("wordCount").textContent = `Word count: ${data.wordCount || data.rewritten.split(' ').length}`;
+    document.getElementById("disclosure").textContent = data.disclosure || "";
+    
+    const suggestions = data.suggestions || [];
+    const suggestionsEl = document.getElementById("suggestions");
+    if (suggestions.length) {
+      suggestionsEl.innerHTML = "<strong>Next steps:</strong><ol>" + 
+        suggestions.map(s => `<li>${s}</li>`).join("") + "</ol>";
+    } else {
+      suggestionsEl.textContent = "No additional suggestions available.";
+    }
+
+    showStatus("Success! Review the refined text above.", false);
+    console.log("Rewrite successful:", data);
+
+  } catch (error) {
+    console.error("Rewrite error:", error);
+    
+    let errorMessage = error.message;
+    
+    // Handle specific error types
+    if (error.name === 'AbortError') {
+      errorMessage = "Request timed out. Please try again with shorter text.";
+    } else if (error.message.includes('401')) {
+      errorMessage = "Invalid API configuration. Please check server setup.";
+    } else if (error.message.includes('429')) {
+      errorMessage = "Rate limit exceeded. Please wait and try again.";
+    } else if (error.message.includes('NetworkError') || error.message.includes('fetch')) {
+      errorMessage = "Network error. Please check your connection and try again.";
+    }
+    
+    showStatus(`Error: ${errorMessage}`, true);
+    document.getElementById("output").textContent = "Error occurred. Please try again.";
   } finally {
     btn.disabled = false;
-    document.getElementById("status").innerText = "";
+    btn.textContent = "Refine & Personalize";
   }
 }
+
+// Allow Enter key to trigger rewrite when focused on inputs
+document.addEventListener('DOMContentLoaded', function() {
+  const inputs = ['inputText', 'anecdote1', 'anecdote2', 'extraDetail', 'tone'];
+  inputs.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) {
+      el.addEventListener('keypress', function(e) {
+        if (e.key === 'Enter' && e.ctrlKey) {
+          rewrite();
+        }
+      });
+    }
+  });
+  
+  // Auto-resize textarea
+  const textarea = document.getElementById('inputText');
+  textarea.addEventListener('input', function() {
+    this.style.height = 'auto';
+    this.style.height = Math.min(this.scrollHeight, 300) + 'px';
+  });
+});
 </script>
 </body>
 </html>
